@@ -1,0 +1,387 @@
+---
+title: "Regression_HW3"
+author: "Warren Geither"
+date: "10/20/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(stats)
+library(lmtest)
+library(ggplot2)
+library(onewaytests)
+library(lawstat)
+library(MASS)
+```
+
+## Problem 2
+
+a.)
+```{r 2a_fit_and_estimate}
+# create dataframe
+freight_data_df <- data.frame(route_changes = c(1,0,2,0,3,1,0,1,2,0)
+                              , ampules_broken = c(16,9,17,12,22,13,8,15,19,11))
+
+# get values needed to calculate
+x <- freight_data_df$route_changes
+y <- freight_data_df$ampules_broken
+x_bar <- mean(x)
+ybar <- mean(y)
+n <- length(x)
+
+# get beta hats
+beta1hat = sum((x-x_bar)*(y-ybar))/sum((x-x_bar)^2)
+beta0hat = ybar-beta1hat*x_bar
+
+# print estimates
+print(paste0("betahat0: ", beta0hat))
+print(paste0("betahat1: ", beta1hat))
+
+# plot 
+ggplot(freight_data_df,aes(route_changes, ampules_broken))+
+  geom_point()+
+  geom_abline(slope=beta1hat, intercept=beta0hat)
+```
+
+b.)
+
+```{r 2b_confidence_intervals}
+# sigma hat^2 = Y^T(I-H)Y/n-2
+y_T <- t(y)
+I <- diag(10)
+X <- cbind(c(rep(1,10)), x)
+X_T <- t(X)
+H <- X%*%solve(X_T%*%X)%*%X_T
+
+# sig hat
+sigma_hat_squared <- ((y_T%*%(I - H)%*%y)/(n-2))
+
+# sxx
+sxx <- sum((x-x_bar)^2)
+
+# t-value
+crit_val <- qt(0.05/2, 8, lower.tail = FALSE)
+
+# beta0hat C.I
+beta0_upper_bound <- beta0hat + crit_val*sqrt(sigma_hat_squared*((1/n)+((x_bar^2)/sxx)))
+beta0_lower_bound <- beta0hat - crit_val*sqrt(sigma_hat_squared*((1/n)+((x_bar^2)/sxx)))
+
+# format for print
+b0_ci1 <- paste0(round(beta0_lower_bound,3), ",")
+b0_ci2 <- paste0(b0_ci1, round(beta0_upper_bound, 3))
+b0_ci3 <- paste0("(",b0_ci2)
+b0_ci4 <- paste0(b0_ci3, ")")
+
+# beta1hat C.I
+beta1_upper_bound <- beta1hat + crit_val*sqrt(sigma_hat_squared/sxx)
+beta1_lower_bound <- beta1hat - crit_val*sqrt(sigma_hat_squared/sxx)
+
+# format for print
+b1_ci1 <- paste0(round(beta1_lower_bound,3), ",")
+b1_ci2 <- paste0(b1_ci1, round(beta1_upper_bound, 3))
+b1_ci3 <- paste0("(",b1_ci2)
+b1_ci4 <- paste0(b1_ci3, ")")
+
+# print C.I.
+print(paste0("95% C.I. for beta0hat: ", b0_ci4))
+print(paste0("95% C.I. for beta1hat: ", b1_ci4))
+```
+
+c.)
+$$
+\begin{aligned}
+\text{Hypothesis for linear relationship} \\
+Ho: \beta_1 = 0 \\
+Ha: \beta_1 \neq 0 \\
+\end{aligned}
+$$
+
+```{r 2c_test_linear_relationship}
+test_stat <- (beta1hat - 0)/sqrt(sigma_hat_squared/sxx)
+
+# For the plot for t test
+dum=seq(-9.5, 9.5, length=10^4)
+
+plot(dum, dt(dum, df=(n-2)), type='l', xlab='t', ylab='f(t)')
+abline(v=test_stat, lty=2)
+abline(v=crit_val, col='red', lty=2)
+abline(v=-crit_val, col='red', lty=2)
+
+```
+Because our test statistic of 8.5 is greater than our postive critical value of 2.3, we can reject the null hypothesis at the alpha=0.05 level and say that there is a linear relationship between broken amplues and ship route changes
+
+## Problem 3
+```{r bootstrap}
+# set seed
+set.seed(201547)
+
+# intialize list of estimates
+betahat1_vector <- c(rep(NA,100))
+
+# create a loop to bootstrap betahat1
+for (i in 1:100){
+  # Sample 10 rows from data
+  sample_row_nums <- sample(nrow(freight_data_df), n, replace = T)
+
+  # Store sample in dataframe
+  sample_rows <- freight_data_df[sample_row_nums, ]
+  
+  # get values for betahat1 calculation
+  x <- sample_rows$route_changes
+  y <- sample_rows$ampules_broken
+  x_bar <- mean(x)
+  ybar <- mean(y)
+  n <- length(x)
+  
+  # calc betahat1
+  beta1hat = sum((x-x_bar)*(y-ybar))/sum((x-x_bar)^2)
+  
+  # store in list
+  betahat1_vector[i] <- beta1hat
+}
+
+# remove na values
+betahat1_vector <- betahat1_vector[!is.na(betahat1_vector)]
+
+# calculate confidence interval
+quantile(x = betahat1_vector, probs = c(0.025,0.975))
+```
+The intervals are similar since both account for the variance in beta1hat. However the first confidence interval multiples by the critical value for the t-distribution at the alpha level we are using. The bootstrap only picks up the natural variance of the mean of beta1hat from the bootstrapping.
+
+## Problem 1 & 4
+
+```{r problem1_ols_model}
+# create dataframe
+sales_df <- data.frame(year = c(seq(0,9,by=1))
+                       , sales = c(98,135,162,178,221,232,283,300,374,395))
+
+# fit model
+lmfit <- lm(sales ~ year, sales_df)
+
+# plot line
+ggplot(sales_df, aes(x= year, y=sales)) + 
+  geom_point() + 
+  #geom_abline(slope= lmfit$coef[2], intercept=lmfit$coef[1]) +
+  xlab("Year") +
+  ylab("Sales")
+
+knitr::kable(summary(sales_df))
+```
+
+```{r problem1_box_cox_transformation}
+# plot of picking best lambda
+boxcox(lmfit,plotit=T)
+
+# storing transform
+bc_transform <- boxcox(lmfit)
+
+# picking lambda that maximimizs the log liklihood
+best_lambda <- bc_transform$x[which(bc_transform$y==max(bc_transform$y))]
+
+# fitting new model
+bcfit <- lm(((sales)^best_lambda - 1)/best_lambda~year, data = sales_df)
+
+# plot
+plot(bcfit)
+```
+
+## Problem 4
+
+### Randomness Check
+
+$$
+\begin{aligned}
+\text{Hypothesis for Runs Test} \\
+Ho: \text{Random} \\
+Ha: \text{Not Random} \\
+\end{aligned}
+$$
+
+```{r randomness_assumption_check}
+# get residuals
+lmfit$residuals
+bcfit$residuals
+
+# Durbin-Watson Test
+dwtest(lmfit)
+dwtest(bcfit)
+
+# Runs Test
+runs.test(residuals(lmfit))
+runs.test(residuals(bcfit))
+```
+
+Manual Runs Test:
+
+Ho: residuals are random
+
+From TableA30: rL = 2, rU=10, fail to reject when 2 < r < 10
+lmfit: 2 postive run & 1 negative run ==> r = 3 ==> fail to reject null 
+bcfit: 4 positive runs & 5 negative runs ==> r=9 ==> fail to reject null
+
+Durbin-watson Test:
+
+Ho: autocorrelation = 0 (resdiduals are independent)
+
+lmfit: p-val = 0.2503 ==> Fail to reject
+bcfit: p-val = 0.9067 ==> Fail to reject
+
+Runs.test():
+
+lmfit: p-val = 0.04417 ==> Reject Ho
+bcfit: p-val = 0.04417 ==> Reject Ho
+
+
+### Constant Variance Check
+
+#### BF Test
+
+$$
+\begin{aligned}
+\text{Hypothesis for BF Test} \\
+Ho: \text{Constant Variance} \\
+Ha: \text{Not Constant Variance} \\
+\end{aligned}
+$$
+```{r constant_variance_assumption_check}
+# set seed
+set.seed(346565)
+
+# initialize empty vector for test stats
+p_val_matrix <- c(rep(NA, 100))
+
+# loop for different groups (replace lmfit with other model for now)
+for(i in 1:100){
+  # Store sample in dataframe
+  group1 <- sample(lmfit$residuals, 5, replace = FALSE)
+  group2 <- lmfit$residuals[!lmfit$residuals %in% group1]
+  
+  # calculate n for the 2 groups
+  n1 <- length(group1)
+  n2 <- length(group2)
+  
+  # calculate medians
+  median_res1 <- median(group1)
+  median_res2 <- median(group2)
+  
+  # caluate deviation of residual from median
+  d1_vals <- abs(group1 - median_res1)
+  d2_vals <- abs(group2 - median_res2)
+  
+  s1 <- sd(d1_vals)
+  s2 <- sd(d2_vals)
+  
+  # mean deviation
+  d1_mean <- mean(d1_vals)
+  d2_mean <- mean(d2_vals)
+  
+  # test statistic
+  t_stat <- (d1_mean-d2_mean)/sqrt(((s1^2)/n1)+((s2^2)/n2))
+  
+  # simplifies df equation below
+  A <- s1^2/n1
+  B <- s2^2/n2
+  
+  # degrees of freedom for Welch 2-sample t-test
+  # https://mse.redwoods.edu/darnold/math15/spring2013/R/Activities/WelchTTest.html
+  df <- (A+B)^2/(A^2/(n1-1)+B^2/(n2-1))
+  
+  # p-value
+  p = 2*pt(t_stat,df)
+  
+  # store result
+  p_val_matrix[i] <- p
+}
+
+# print results
+p_val_matrix
+```
+
+
+
+lmfit: Fail to Reject 100/100 times
+bcfit: Fail to Reject 100/100 times
+
+#### BP Test
+```{r r_bp_test}
+# plots for bp test
+ggplot(sales_df, aes(x= year, y=residuals(lmfit)^2)) + 
+  geom_point() +
+  xlab("Year") +
+  ylab("Residuals^2")
+
+ggplot(sales_df, aes(x= year, y=abs(residuals(lmfit)))) + 
+  geom_point() +
+  xlab("Year") +
+  ylab("abs(Residuals)")
+
+plot(abs(residuals(lmfit)))
+
+# conduct bp test
+bptest(sales~year, data = sales_df)
+```
+
+```{r anderson_darling_normality_test}
+shapiro.test(residuals(lmfit))
+library(nortest)
+ad.test(residuals(lmfit))
+```
+
+```{r qq_normality_test}
+library(faraway)
+qqnorm(residuals(lmfit), ylab = "Residuals")
+qqline(residuals(lmfit))
+
+ggplot(lmfit, aes(sample=residuals(lmfit)))+
+  stat_qq() +
+  stat_qq_line() +
+  xlab("Theoretical") +
+  ylab("Residuals")
+```
+
+## Appendix
+```{r bf_test_in_class_example}
+g1<-c(6.4363636,  10.9393939 ,  5.4424242, -11.0545455 , -0.5515152)
+g2<-c(-22.0484848 , -3.5454545,-19.0424242,  22.4606061,  10.9636364 )
+
+n1 <- length(g1)
+n2 <- length(g2)
+
+d1<-abs(g1-median(g1))
+d2<-abs(g2-median(g2))
+
+  s1 <- sd(d1)
+  s2 <- sd(d2)
+  
+    # # mean deviation
+  d1_mean <- mean(d1)
+  d2_mean <- mean(d2)
+  
+  t_stat=(d1_mean-d2_mean)/sqrt(((s1^2)/n1)+((s2^2)/n2))
+  
+  A=(s1^2)/n1
+  B=(s2^2)/n2
+
+  df=((A+B)^2)/(((A^2)/(n1-1))+((B^2)/(n2-1)))
+  
+  p = 2*pt(t_stat,df)
+```
+
+```{r bf_test_using_function}
+# BF test using function (not sure if this works)
+group1 <- sample(lmfit$residuals, 5, replace = FALSE)
+group2 <- lmfit$residuals[!lmfit$residuals %in% group1]
+
+group1_mat <- data.frame(res = group1, group = c(rep(1,5)))
+group2_mat <- data.frame(res = group1, group = c(rep(2,5)))
+
+group_df <- rbind(group1_mat, group2_mat)
+
+group_df$group <- as.factor(group_df$group)
+
+bf.test(res ~ group, data = group_df)
+
+out <- bf.test(res ~ group, data = group_df)
+out$p.value
+```
