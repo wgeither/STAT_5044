@@ -13,6 +13,8 @@ library(ggplot2)
 library(onewaytests)
 library(lawstat)
 library(MASS)
+library(faraway)
+library(nortest)
 ```
 
 ## Problem 2
@@ -147,9 +149,12 @@ betahat1_vector <- betahat1_vector[!is.na(betahat1_vector)]
 # calculate confidence interval
 quantile(x = betahat1_vector, probs = c(0.025,0.975))
 ```
+
 The intervals are similar since both account for the variance in beta1hat. However the first confidence interval multiples by the critical value for the t-distribution at the alpha level we are using. The bootstrap only picks up the natural variance of the mean of beta1hat from the bootstrapping.
 
 ## Problem 1 & 4
+
+## OLS Model
 
 ```{r problem1_ols_model}
 # create dataframe
@@ -159,16 +164,40 @@ sales_df <- data.frame(year = c(seq(0,9,by=1))
 # fit model
 lmfit <- lm(sales ~ year, sales_df)
 
+# summary of model
+summary(lmfit)
+
 # plot line
 ggplot(sales_df, aes(x= year, y=sales)) + 
   geom_point() + 
-  #geom_abline(slope= lmfit$coef[2], intercept=lmfit$coef[1]) +
+  geom_abline(slope= lmfit$coef[2], intercept=lmfit$coef[1], color = "black") +
   xlab("Year") +
   ylab("Sales")
 
+# residuals
+ggplot(sales_df, aes(x= fitted(lmfit), y=residuals(lmfit))) + 
+  geom_point() +
+  geom_hline(yintercept=0) +
+  xlab("Fitted") +
+  ylab("Residuals")
+
+# abs residuals
+ggplot(sales_df, aes(x= fitted(lmfit), y=abs(residuals(lmfit)))) + 
+  geom_point() +
+  xlab("Fitted") +
+  ylab("abs(Residuals)")
+
+# cooks distance
+par(mfcol=c(2,3))
+cook<-cooks.distance(lmfit)
+halfnorm(cook,3,ylab="Cooks dist")
+boxplot(cook)
+
+# summary stats
 knitr::kable(summary(sales_df))
 ```
 
+## Box-Cox Transformation
 ```{r problem1_box_cox_transformation}
 # plot of picking best lambda
 boxcox(lmfit,plotit=T)
@@ -180,15 +209,103 @@ bc_transform <- boxcox(lmfit)
 best_lambda <- bc_transform$x[which(bc_transform$y==max(bc_transform$y))]
 
 # fitting new model
-bcfit <- lm(((sales)^best_lambda - 1)/best_lambda~year, data = sales_df)
+bcfit <- lm(((sales^0.5) - 1)/0.5~year, data = sales_df)
 
-# plot
-plot(bcfit)
+# summary of model
+summary(bcfit)
+
+# residuals
+ggplot(sales_df, aes(x= fitted(bcfit), y=residuals(bcfit))) + 
+  geom_point() +
+  geom_hline(yintercept=0) +
+  xlab("Fitted") +
+  ylab("Residuals")
+
+# abs residuals
+ggplot(sales_df, aes(x= fitted(bcfit), y=abs(residuals(bcfit)))) + 
+  geom_point() +
+  xlab("Fitted") +
+  ylab("abs(Residuals)")
+
+# regression line
+ggplot(sales_df, aes(x= year, y=((sales^0.5) - 1)/0.5)) + 
+  geom_point() + 
+  geom_abline(slope= bcfit$coef[2], intercept=bcfit$coef[1], color = "black") +
+  xlab("Year") +
+  ylab("Box-Cox Transform Sales")
+```
+
+## WLS Transformation
+```{r problem1_WLS_transformation}
+# store residuals
+resid<-residuals(lmfit)
+
+# absolute value of residuals
+absresid<-abs(resid)
+
+# bring together in dataframe
+res_data <- as.data.frame(cbind(absresid, year = sales_df$year))
+
+# find linear relationshp between abs(res) vs X
+lmfitw0 <- lm(absresid~., data = res_data)
+
+# weight is proportion to inverse of variance
+w <- 1/(fitted(lmfitw0))^2
+
+# fit WLS
+wfit <- lm(sales~year, data = sales_df, weights = w)
+
+# summary of model
+summary(wfit)
+
+# x and y values
+y <- sales_df$sales
+x <- sales_df$year
+
+# create weighted values
+yw <- w^0.5*y
+xw <- w^0.5*x
+
+# fit the model a different way
+wlm <-lm(yw~xw)
+
+# sumary of wlm
+summary(wlm)
+
+# create a weighted dataframe
+weighted_df <- as.data.frame(cbind(xw,yw))
+
+# created a weighted plot
+ggplot(weighted_df, aes(x= xw, y=yw)) + 
+  geom_point() + 
+  geom_abline(slope= wlm$coef[2], intercept=wlm$coef[1], color = "black") +
+  xlab("Year") +
+  ylab("Weighted Sales")
+
+# weighted residuals
+resid <- residuals(wfit)
+wresid <- w^0.5*resid 
+
+# store weighted resdduals in data frame
+new_data <- as.data.frame(cbind(fitted = fitted(wfit), res = wresid))
+
+# plot residuals
+ggplot(new_data, aes(x = fitted, y = res)) + 
+  geom_point() +
+  geom_hline(yintercept=0) +
+  xlab("Fitted") +
+  ylab("Residuals")
+
+# abs residuals
+ggplot(new_data, aes(x = fitted, y = abs(res))) + 
+  geom_point() +
+  xlab("Fitted") +
+  ylab("abs(Residuals)")
 ```
 
 ## Problem 4
 
-### Randomness Check
+## Randomness Check
 
 $$
 \begin{aligned}
@@ -198,18 +315,17 @@ Ha: \text{Not Random} \\
 \end{aligned}
 $$
 
-```{r randomness_assumption_check}
+#### Runs Test
+```{r runs_test, results="hide"}
 # get residuals
 lmfit$residuals
 bcfit$residuals
-
-# Durbin-Watson Test
-dwtest(lmfit)
-dwtest(bcfit)
+wlm$residuals
 
 # Runs Test
 runs.test(residuals(lmfit))
 runs.test(residuals(bcfit))
+runs.test(residuals(wlm))
 ```
 
 Manual Runs Test:
@@ -219,23 +335,55 @@ Ho: residuals are random
 From TableA30: rL = 2, rU=10, fail to reject when 2 < r < 10
 lmfit: 2 postive run & 1 negative run ==> r = 3 ==> fail to reject null 
 bcfit: 4 positive runs & 5 negative runs ==> r=9 ==> fail to reject null
-
-Durbin-watson Test:
-
-Ho: autocorrelation = 0 (resdiduals are independent)
-
-lmfit: p-val = 0.2503 ==> Fail to reject
-bcfit: p-val = 0.9067 ==> Fail to reject
+wls: 2 postive run & 1 negative run ==> r = 3 ==> fail to reject null
 
 Runs.test():
 
 lmfit: p-val = 0.04417 ==> Reject Ho
 bcfit: p-val = 0.04417 ==> Reject Ho
+wlm: p-val = 0.04417 ==> Reject Ho
 
+## Durbin Watson Test
+```{r dw_test, results="hide"}
+# mnaual dw test
+lm_res_squared <- sum(lmfit$residuals^2)
+bc_res_squared <- sum(bcfit$residuals^2)
+wlm_res_squared <- sum(wlm$residuals^2)
 
-### Constant Variance Check
+# calc numerator for dw test  
+for (i in 2:10){
+  lm_lag_sum <- sum((lmfit$residuals[i]-lmfit$residuals[i-1])^2)
+  bc_lag_sum <- sum((bcfit$residuals[i]-bcfit$residuals[i-1])^2)
+  wlm_lag_sum <- sum((wlm$residuals[i]-wlm$residuals[i-1])^2)
+}
 
-#### BF Test
+# calculate d
+lmfit_D <- lm_lag_sum / lm_res_squared
+bcfit_D <- bc_lag_sum / bc_res_squared
+wlmfit_D <- wlm_lag_sum / wlm_res_squared
+
+# Durbin-Watson Test
+dwtest(lmfit)
+dwtest(bcfit)
+dwtest(wlm)
+```
+
+### Manual Durbin Watson Test:
+dL = 0.604
+dU = 1.001
+
+lmfit: D = 0.0734
+bcfit: D = 0.2785
+wlm: D = 0.04862
+
+Durbin-watson Test:
+Ho: autocorrelation = 0 (resdiduals are independent)
+
+lmfit: p-val = 0.2503 ==> Fail to reject
+bcfit: p-val = 0.9067 ==> Fail to reject
+wlm: p-val = 0.2381 ==> Fail to reject
+
+## Constant Variance Check
 
 $$
 \begin{aligned}
@@ -244,6 +392,9 @@ Ho: \text{Constant Variance} \\
 Ha: \text{Not Constant Variance} \\
 \end{aligned}
 $$
+
+## BF Test
+
 ```{r constant_variance_assumption_check}
 # set seed
 set.seed(346565)
@@ -293,95 +444,63 @@ for(i in 1:100){
   # store result
   p_val_matrix[i] <- p
 }
-
-# print results
-p_val_matrix
 ```
-
-
 
 lmfit: Fail to Reject 100/100 times
 bcfit: Fail to Reject 100/100 times
+wlm: Fail to Reject 100/100 times
 
-#### BP Test
-```{r r_bp_test}
-# plots for bp test
-ggplot(sales_df, aes(x= year, y=residuals(lmfit)^2)) + 
-  geom_point() +
-  xlab("Year") +
-  ylab("Residuals^2")
+## BP Test
 
-ggplot(sales_df, aes(x= year, y=abs(residuals(lmfit)))) + 
-  geom_point() +
-  xlab("Year") +
-  ylab("abs(Residuals)")
-
-plot(abs(residuals(lmfit)))
-
+```{r r_bp_test, results="hide"}
 # conduct bp test
-bptest(sales~year, data = sales_df)
+bptest(lmfit)
+bptest(bcfit)
+bptest(wlm)
 ```
 
-```{r anderson_darling_normality_test}
+lmfit: p-val = 0.1216 ==> Fail to reject
+bcfit: p-val = 0.6753 ==> Fail to reject
+wlm: p-val = 0.1502 ==> Fail to reject
+
+## Normality Test
+
+## Anderson Darling Test
+```{r anderson_darling_normality_test, results="hide"}
+# Shapiro-Wilks Test
 shapiro.test(residuals(lmfit))
-library(nortest)
+
+# Anderson Darling Test
 ad.test(residuals(lmfit))
+ad.test(residuals(bcfit))
+ad.test(residuals(wlm))
 ```
 
-```{r qq_normality_test}
-library(faraway)
-qqnorm(residuals(lmfit), ylab = "Residuals")
-qqline(residuals(lmfit))
+lmfit: p-val = 0.7703 ==> Fail to Reject
+bcfit: p-val = 0.3809 ==> Fail to Reject
+wlm: p-val = 0.7958 ==> Fail to Reject
 
+## QQ-Plots
+```{r qq_normality_test}
+
+# QQ for lmfit
 ggplot(lmfit, aes(sample=residuals(lmfit)))+
   stat_qq() +
   stat_qq_line() +
   xlab("Theoretical") +
   ylab("Residuals")
-```
 
-## Appendix
-```{r bf_test_in_class_example}
-g1<-c(6.4363636,  10.9393939 ,  5.4424242, -11.0545455 , -0.5515152)
-g2<-c(-22.0484848 , -3.5454545,-19.0424242,  22.4606061,  10.9636364 )
+# QQ for bcfit
+ggplot(lmfit, aes(sample=residuals(bcfit)))+
+  stat_qq() +
+  stat_qq_line() +
+  xlab("Theoretical") +
+  ylab("Residuals")
 
-n1 <- length(g1)
-n2 <- length(g2)
-
-d1<-abs(g1-median(g1))
-d2<-abs(g2-median(g2))
-
-  s1 <- sd(d1)
-  s2 <- sd(d2)
-  
-    # # mean deviation
-  d1_mean <- mean(d1)
-  d2_mean <- mean(d2)
-  
-  t_stat=(d1_mean-d2_mean)/sqrt(((s1^2)/n1)+((s2^2)/n2))
-  
-  A=(s1^2)/n1
-  B=(s2^2)/n2
-
-  df=((A+B)^2)/(((A^2)/(n1-1))+((B^2)/(n2-1)))
-  
-  p = 2*pt(t_stat,df)
-```
-
-```{r bf_test_using_function}
-# BF test using function (not sure if this works)
-group1 <- sample(lmfit$residuals, 5, replace = FALSE)
-group2 <- lmfit$residuals[!lmfit$residuals %in% group1]
-
-group1_mat <- data.frame(res = group1, group = c(rep(1,5)))
-group2_mat <- data.frame(res = group1, group = c(rep(2,5)))
-
-group_df <- rbind(group1_mat, group2_mat)
-
-group_df$group <- as.factor(group_df$group)
-
-bf.test(res ~ group, data = group_df)
-
-out <- bf.test(res ~ group, data = group_df)
-out$p.value
+# QQ for wls
+ggplot(wlm, aes(sample=residuals(wlm)))+
+  stat_qq() +
+  stat_qq_line() +
+  xlab("Theoretical") +
+  ylab("Residuals")
 ```
